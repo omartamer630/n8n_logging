@@ -7,8 +7,8 @@ from datetime import datetime
 app = Flask(__name__)
 
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ee4f834fdc17490b8841f20e017663de.1aW39FgtIJVGNGi7GeDQdxoD")
-OLLAMA_URL = "https://ollama.com/api/chat"
-OBSIDIAN_PATH = "/data/obsidian"
+OLLAMA_CHAT_URL = "https://api.ollama.ai/api/chat"
+OBSIDIAN_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "/data/obsidian")
 
 @app.route('/')
 def index():
@@ -42,7 +42,7 @@ def extract_data(text):
     payload = {
         "model": "qwen3.5:397b",
         "messages": [
-            {"role": "system", "content": "Extract from user input: start_time (HH:MM), end_time (HH:MM), activity, mood. Return ONLY valid JSON like: {\"start_time\":\"09:00\",\"end_time\":\"10:30\",\"activity\":\"Working\",\"mood\":\"happy\"}"},
+            {"role": "system", "content": "Extract start_time (HH:MM 24h), end_time (HH:MM 24h), activity, mood from the transcript. Return ONLY valid JSON like: {\"start_time\":\"09:00\",\"end_time\":\"10:30\",\"activity\":\"Working\",\"mood\":\"happy\"}"},
             {"role": "user", "content": text}
         ],
         "stream": False
@@ -50,7 +50,7 @@ def extract_data(text):
 
     try:
         response = requests.post(
-            OLLAMA_URL,
+            OLLAMA_CHAT_URL,
             json=payload,
             headers={
                 "Authorization": f"Bearer {OLLAMA_API_KEY}",
@@ -66,7 +66,20 @@ def extract_data(text):
                 if '{' in content:
                     start = content.find('{')
                     end = content.rfind('}') + 1
-                    return json.loads(content[start:end])
+                    parsed = json.loads(content[start:end])
+
+                    # Calculate duration
+                    try:
+                        sh, sm = parsed.get('start_time', '').split(':')
+                        eh, em = parsed.get('end_time', '').split(':')
+                        duration = (int(eh) * 60 + int(em)) - (int(sh) * 60 + int(sm))
+                        if duration < 0:
+                            duration = ''
+                        parsed['duration'] = duration
+                    except:
+                        parsed['duration'] = ''
+
+                    return parsed
             except:
                 pass
     except Exception as e:
@@ -74,7 +87,7 @@ def extract_data(text):
 
     # Fallback
     now = datetime.now().strftime("%H:%M")
-    return {"start_time": now, "end_time": now, "activity": text[:50], "mood": "neutral"}
+    return {"start_time": now, "end_time": now, "duration": "", "activity": text[:50], "mood": "neutral"}
 
 def save_to_obsidian(data):
     """Save to daily log"""
@@ -82,11 +95,14 @@ def save_to_obsidian(data):
     os.makedirs(f"{OBSIDIAN_PATH}/DailyLogs", exist_ok=True)
     filepath = f"{OBSIDIAN_PATH}/DailyLogs/{today}.md"
 
-    content = f"\n| {data.get('start_time','')} | {data.get('end_time','')} | {data.get('duration','')} | {data.get('activity','')} | {data.get('mood','')} |\n"
+    content = f"| {data.get('start_time','')} | {data.get('end_time','')} | {data.get('duration','')} | {data.get('activity','')} | {data.get('mood','')} |\n"
+
+    # Check if file is new and add header
+    file_exists = os.path.exists(filepath)
+    file_empty = not file_exists or os.path.getsize(filepath) == 0
 
     with open(filepath, 'a', encoding='utf-8') as f:
-        # Add header if new file
-        if os.path.getsize(filepath) == 0:
+        if file_empty:
             f.write("| Start | End | Duration | Activity | Mood |\n")
             f.write("|-------|-----|----------|----------|------|\n")
         f.write(content)

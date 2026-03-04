@@ -80,7 +80,7 @@
     },
     {
       "parameters": {
-        "functionCode": "const raw = $input.first().json.message.content;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : {};\n}\n\nconst now = new Date();\nconst fallback = now.toTimeString().substring(0,5);\n\nconst start = parsed.start_time || fallback;\nconst end = parsed.end_time || fallback;\n\nlet duration = \"\";\ntry {\n  const [sh, sm] = start.split(\":\").map(Number);\n  const [eh, em] = end.split(\":\").map(Number);\n  duration = (eh*60+em) - (sh*60+sm);\n  if (duration < 0) duration = \"\";\n} catch {}\n\nconst data = {\n  start_time: start,\n  end_time: end,\n  duration,\n  activity: parsed.activity || \"Unknown\",\n  mood: parsed.mood || \"neutral\"\n};\n\nconst row = `| ${data.start_time} | ${data.end_time} | ${data.duration || \"\"} min | ${data.activity} | ${data.mood} |\\n`;\n\n// Check if file exists and has content\nconst fileExists = $('Check Existing File').first().json.fileExists || false;\nconst header = fileExists ? '' : '| Start | End | Duration | Activity | Mood |\\n|-------|-----|----------|----------|------|\\n';\n\nreturn [{ json: { ...data, row: header + row } }];"
+        "functionCode": "const raw = $('Extract Structured Data').first().json.message.content;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : {};\n}\n\nconst now = new Date();\nconst fallback = now.toTimeString().substring(0,5);\n\nconst start = parsed.start_time || fallback;\nconst end = parsed.end_time || fallback;\n\nlet duration = \"\";\ntry {\n  const [sh, sm] = start.split(\":\").map(Number);\n  const [eh, em] = end.split(\":\").map(Number);\n  duration = (eh*60+em) - (sh*60+sm);\n  if (duration < 0) duration = \"\";\n} catch {}\n\nconst data = {\n  start_time: start,\n  end_time: end,\n  duration,\n  activity: parsed.activity || \"Unknown\",\n  mood: parsed.mood || \"neutral\"\n};\n\n// Check if file has content\nconst fileData = $('Check Existing File').first().json.data;\nconst isFirstEntry = !fileData || fileData.trim() === '';\n\nconst header = isFirstEntry ? '| Start | End | Duration | Activity | Mood |\\n|-------|-----|----------|----------|------|\\n' : '';\nconst row = `| ${data.start_time} | ${data.end_time} | ${data.duration || \"\"} min | ${data.activity} | ${data.mood} |\\n`;\n\nreturn [{ json: { ...data, row: header + row } }];"
       },
       "id": "Parser",
       "name": "Parse & Validate",
@@ -91,7 +91,7 @@
     {
       "parameters": {
         "fileName": "/data/obsidian/DailyLogs/{{$now.format(\"YYYY-MM-DD\")}}.md",
-        "data": "{% if $json.firstEntry %}| Start | End | Duration | Activity | Mood |\n|-------|-----|----------|----------|------|\n{% endif %}{{ $json.row }}",
+        "data": "{{ $json.row }}",
         "options": {
           "append": true
         }
@@ -100,7 +100,7 @@
       "name": "Append to Obsidian",
       "type": "n8n-nodes-base.writeBinaryFile",
       "typeVersion": 1,
-      "position": [1200, 300]
+      "position": [1350, 300]
     }
   ],
   "connections": {

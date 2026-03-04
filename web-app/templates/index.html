@@ -36,7 +36,7 @@
         .record-btn svg { width: 50px; height: 50px; fill: white; }
         .status { font-size: 16px; color: #333; min-height: 24px; text-align: center; }
         .transcript {
-            width: 100%; min-height: 60px; padding: 15px;
+            width: 100%; min-height: 80px; padding: 15px;
             border: 2px solid #ddd; border-radius: 10px;
             font-size: 16px; text-align: center; color: #666;
             background: #f8f9fa;
@@ -48,11 +48,11 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎙️ Voice Logger</h1>
-        <p class="subtitle">Speak your activity</p>
+        <h1>Voice Logger</h1>
+        <p class="subtitle">Tap to record your activity</p>
         <div class="recorder">
             <button class="record-btn" id="recordBtn">
-                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                <svg viewBox="0 0 24 24" id="micIcon"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
             </button>
             <p class="status" id="status">Tap to start recording</p>
             <p class="transcript" id="transcript">Your speech will appear here...</p>
@@ -65,63 +65,80 @@
     <script>
         let recognition = null;
         let isRecording = false;
-        let recordedText = '';
+        let finalTranscript = '';
 
         const recordBtn = document.getElementById('recordBtn');
         const status = document.getElementById('status');
         const transcript = document.getElementById('transcript');
         const result = document.getElementById('result');
         const successMsg = document.getElementById('successMsg');
+        const micIcon = document.getElementById('micIcon');
 
-        // Check browser support
+        // Initialize Speech Recognition
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
-            recognition.continuous = false;
+            recognition.continuous = true;
             recognition.interimResults = true;
-            recognition.lang = 'ar-SA,en-US';
+            recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-                let finalTranscript = '';
-                let interimTranscript = '';
+                let interim = '';
+                finalTranscript = '';
                 for (let i = event.resultIndex; i < event.results.length; i++) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript;
                     } else {
-                        interimTranscript += event.results[i][0].transcript;
+                        interim += event.results[i][0].transcript;
                     }
                 }
-                const text = finalTranscript || interimTranscript;
-                transcript.textContent = text || '...';
-                recordedText = text;
+                transcript.textContent = finalTranscript || interim || 'Listening...';
             };
 
             recognition.onend = () => {
-                isRecording = false;
-                recordBtn.classList.remove('recording');
-                if (recordedText.trim()) {
-                    status.textContent = 'Processing...';
-                    submitActivity(recordedText);
+                if (isRecording) {
+                    // Restart if still supposed to be recording
+                    try { recognition.start(); } catch(e) {}
+                } else if (finalTranscript.trim()) {
+                    // Process final transcript
+                    submitActivity(finalTranscript);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                if (event.error === 'no-speech') {
+                    // Ignore no-speech errors, keep listening
                 } else {
-                    status.textContent = 'Tap to start recording';
+                    status.textContent = 'Error: ' + event.error;
                 }
             };
         }
 
         recordBtn.addEventListener('click', () => {
             if (!recognition) {
-                status.textContent = 'Browser not supported';
+                status.textContent = 'Speech recognition not supported';
                 return;
             }
-            recordedText = '';
-            transcript.textContent = 'Listening...';
+
             if (!isRecording) {
-                recognition.start();
+                // Start recording
+                finalTranscript = '';
+                transcript.textContent = 'Listening...';
+                try {
+                    recognition.start();
+                } catch(e) {
+                    // Already started
+                }
                 isRecording = true;
                 recordBtn.classList.add('recording');
-                status.textContent = 'Listening... Speak now';
+                status.textContent = 'Recording... Tap to stop';
             } else {
+                // Stop recording
+                isRecording = false;
                 recognition.stop();
+                recordBtn.classList.remove('recording');
+                status.textContent = 'Processing...';
             }
         });
 
@@ -135,13 +152,12 @@
                 const data = await response.json();
                 if (data.success) {
                     result.classList.add('show');
-                    successMsg.textContent = '✓ Saved to Obsidian!';
+                    successMsg.textContent = `✓ Saved: ${data.data.activity} at ${data.data.start_time}`;
                     transcript.textContent = 'Your speech will appear here...';
-                    recordedText = '';
                     setTimeout(() => {
                         result.classList.remove('show');
                         status.textContent = 'Tap to start recording';
-                    }, 3000);
+                    }, 4000);
                 } else {
                     status.textContent = 'Error: ' + (data.error || 'Failed');
                 }
