@@ -1,0 +1,166 @@
+{
+  "name": "Voice Log → Whisper → LLM → Obsidian",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-log",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "Webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ollama.ai/api/invoke/whisper",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.OLLAMA_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"audio\": \"{{$json.audio}}\"\n}"
+      },
+      "id": "Whisper",
+      "name": "Transcribe (Whisper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ollama.ai/api/chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.OLLAMA_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"qwen3.5:397b\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Extract start_time (HH:MM 24h), end_time (HH:MM 24h), activity, mood from the transcript. Return JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Transcript: {{$json.text}}\"\n    }\n  ],\n  \"stream\": false\n}"
+      },
+      "id": "LLM",
+      "name": "Extract Structured Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "fileName": "/data/obsidian/DailyLogs/{{$now.format(\"YYYY-MM-DD\")}}.md"
+      },
+      "id": "ReadFile",
+      "name": "Check Existing File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [950, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const raw = $input.first().json.message.content;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : {};\n}\n\nconst now = new Date();\nconst fallback = now.toTimeString().substring(0,5);\n\nconst start = parsed.start_time || fallback;\nconst end = parsed.end_time || fallback;\n\nlet duration = \"\";\ntry {\n  const [sh, sm] = start.split(\":\").map(Number);\n  const [eh, em] = end.split(\":\").map(Number);\n  duration = (eh*60+em) - (sh*60+sm);\n  if (duration < 0) duration = \"\";\n} catch {}\n\nconst data = {\n  start_time: start,\n  end_time: end,\n  duration,\n  activity: parsed.activity || \"Unknown\",\n  mood: parsed.mood || \"neutral\"\n};\n\nconst row = `| ${data.start_time} | ${data.end_time} | ${data.duration || \"\"} min | ${data.activity} | ${data.mood} |\\n`;\n\n// Check if file exists and has content\nconst fileExists = $('Check Existing File').first().json.fileExists || false;\nconst header = fileExists ? '' : '| Start | End | Duration | Activity | Mood |\\n|-------|-----|----------|----------|------|\\n';\n\nreturn [{ json: { ...data, row: header + row } }];"
+      },
+      "id": "Parser",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "fileName": "/data/obsidian/DailyLogs/{{$now.format(\"YYYY-MM-DD\")}}.md",
+        "data": "{% if $json.firstEntry %}| Start | End | Duration | Activity | Mood |\n|-------|-----|----------|----------|------|\n{% endif %}{{ $json.row }}",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "AppendFile",
+      "name": "Append to Obsidian",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [1200, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Transcribe (Whisper)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe (Whisper)": {
+      "main": [
+        [
+          {
+            "node": "Extract Structured Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Structured Data": {
+      "main": [
+        [
+          {
+            "node": "Check Existing File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing File": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [
+          {
+            "node": "Append to Obsidian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1"
+}

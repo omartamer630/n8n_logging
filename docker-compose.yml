@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    user: root
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_HOST: n8n
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://voice-app:5000/
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY}
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+      - ./obsidian-vault:/data/obsidian
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  voice-app:
+    build: ./web-app
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY}
+      OLLAMA_BASE_URL: https://api.ollama.ai
+      OBSIDIAN_VAULT_PATH: /data/obsidian
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/voice-log
+    depends_on:
+      - n8n
+    volumes:
+      - ./obsidian-vault:/data/obsidian
+
+volumes:
+  n8n_data:
+
+

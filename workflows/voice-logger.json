@@ -1,0 +1,232 @@
+{
+  "name": "Voice Logger Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-voice"
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "telegram-voice-webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot$env.TELEGRAM_BOT_TOKEN/getFile?file_id=$json.message.voice.file_id",
+        "responseFormat": "json"
+      },
+      "name": "Get File Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/file/bot$env.TELEGRAM_BOT_TOKEN/$json.result.file_path",
+        "responseFormat": "file",
+        "options": {
+          "fileName": "voice.ogg"
+        }
+      },
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer $env.OPENAI_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "form-binary",
+        "formDataBinary": {
+          "file": "$binary.voice.ogg"
+        },
+        "formData": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "whisper-1"
+            },
+            {
+              "name": "language",
+              "value": "auto"
+            }
+          ]
+        }
+      },
+      "name": "Transcribe with Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:11434/api/chat",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama3.2"
+            },
+            {
+              "name": "messages",
+              "value": "[{\"role\": \"system\", \"content\": \"Extract JSON with: activity, duration_minutes, category, notes, tags\"}, {\"role\": \"user\", \"content\": \"$json.text\"}]"
+            },
+            {
+              "name": "stream",
+              "value": false
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Extract with Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileName": "daily-log-$now.format(\"YYYY-MM-DD\").md",
+        "filePath": "$env.OBSIDIAN_VAULT_PATH",
+        "writeMode": "append",
+        "content": "$json.message.content"
+      },
+      "name": "Append to Obsidian",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot$env.TELEGRAM_BOT_TOKEN/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "$json.message.chat.id"
+            },
+            {
+              "name": "text",
+              "value": "Voice log saved!"
+            }
+          ]
+        }
+      },
+      "name": "Send Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1450,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get File Info",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Get File Info": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Transcribe with Whisper",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Transcribe with Whisper": {
+      "main": [
+        [
+          {
+            "node": "Extract with Ollama",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extract with Ollama": {
+      "main": [
+        [
+          {
+            "node": "Append to Obsidian",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "node": "Send Confirmation",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
